@@ -207,9 +207,28 @@ function complete() {
   notifyDone();
 }
 
+/** Time's up: start a fresh countdown of `secs`. */
 function addTime(secs) {
   begin(secs, { cycle: st.cycles, cycles: st.cycles, dur: st.dur });
 }
+
+/** Still counting (or paused): make the current countdown longer. */
+function extend(secs) {
+  const ms = secs * 1000;
+  if (st.status === 'running') {
+    st = { ...st, endAt: st.endAt + ms, total: st.total + ms };
+    arm();
+  } else if (st.status === 'paused') {
+    st = { ...st, left: st.left + ms, total: st.total + ms };
+  } else {
+    return;
+  }
+  persist();
+  update();
+  toast(`+${shortDur(secs)} added`);
+}
+
+const addSecs = (secs) => (st.status === 'finished' ? addTime(secs) : extend(secs));
 
 function tick() {
   if (st.status === 'running' && Date.now() >= st.endAt) complete();
@@ -239,6 +258,8 @@ function render() {
   show(q('#t-picker'), s === 'idle');
   show(q('#t-dial'), s !== 'idle');
   show(q('#t-finish'), s === 'finished');
+  show(q('#t-done'), s === 'finished');
+  show(q('#t-addbox'), s !== 'idle');
   show(q('#t-presets'), s === 'idle');
 
   const controls = {
@@ -250,7 +271,7 @@ function render() {
     finished: '',
   }[s];
   q('#t-controls').innerHTML = controls;
-  if (s === 'finished') renderFinish();
+  renderFinish();
   update();
 }
 
@@ -344,7 +365,10 @@ function onCfgChanged(key) {
   if (key === 'volume') q('#t-vol-out').textContent = `${Math.round(cfg.volume * 100)}%`;
   if (key === 'wake' || key === 'keepAlive') syncRuntime();
   if (key === 'vibrate' && !cfg.vibrate) navigator.vibrate?.(0);
-  if (key === 'sound') updateCustomUi();
+  if (key === 'sound') {
+    updateCustomUi();
+    if (cfg.sound === 'custom' && !customName) q('#t-file').click(); // nothing picked yet: open the file chooser
+  }
   render();
 }
 
@@ -467,14 +491,18 @@ export default {
         <div class="finish" id="t-finish" hidden>
           <button class="btn danger big wide" id="t-stop" data-act="silence" hidden>${icons.bellOff}Stop alarm</button>
           <button class="btn primary big wide" data-act="restart">${icons.reset}Restart <span id="t-restart-dur"></span></button>
-          <div class="group-label">Add more time</div>
+        </div>
+
+        <div class="addbox" id="t-addbox" hidden>
+          <div class="group-label" id="t-add-label">Add time</div>
           <div class="chips" id="t-adds"></div>
           <div class="custom-add" id="t-custom-add">
             <span class="muted">Custom</span>
             <button class="btn secondary small" data-act="add-custom">${icons.plus}Add</button>
           </div>
-          <button class="btn ghost" data-act="reset">Done – back to timer</button>
         </div>
+
+        <button class="btn ghost wide" id="t-done" data-act="reset" hidden>Done – back to timer</button>
       </section>
 
       <section class="card" id="t-presets">
@@ -540,6 +568,7 @@ export default {
       input.addEventListener('focus', () => input.select());
       input.addEventListener('input', () => { input.value = input.value.replace(/\D/g, '').slice(0, 2); });
       input.addEventListener('blur', () => writePicker(readPicker())); // normalize 90 sec -> 1:30
+      input.addEventListener('keydown', (e) => { if (e.key === 'Enter') { input.blur(); start(); } });
     }
     writePicker(cfg.dur);
 
@@ -547,8 +576,8 @@ export default {
       start, pause, resume, reset,
       silence,
       restart: () => begin(st.dur),
-      add: (b) => addTime(Number(b.dataset.sec)),
-      'add-custom': () => addTime(customAddSecs),
+      add: (b) => addSecs(Number(b.dataset.sec)),
+      'add-custom': () => addSecs(customAddSecs),
       'add-option': () => { cfg.adds.push(60); saveCfg(); renderAddsEditor(); renderFinish(); },
       browse: () => q('#t-file').click(),
       'clear-custom': async () => {
