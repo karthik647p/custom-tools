@@ -177,13 +177,32 @@ function resume() {
   render();
 }
 
-function reset() {
+/** Stop: cancel the timer, silence any alarm and go back to the time picker. */
+function stop() {
   silence();
   st = { status: 'idle' };
   persist();
   syncRuntime();
   render();
 }
+
+/** Reset: back to the full time, waiting for you to press Start. */
+function reset() {
+  if (st.status === 'idle') return;
+  silence();
+  const ms = st.dur * 1000;
+  st = { status: 'paused', total: ms, left: ms, cycle: 1, cycles: st.cycles, dur: st.dur };
+  persist();
+  syncRuntime();
+  render();
+}
+
+/** Restart: run the full time again from the top, immediately. */
+function restart() {
+  if (st.status !== 'idle') begin(st.dur);
+}
+
+const isReady = () => st.status === 'paused' && st.left >= st.total;
 
 function complete() {
   const now = Date.now();
@@ -258,26 +277,28 @@ function render() {
   show(q('#t-picker'), s === 'idle');
   show(q('#t-dial'), s !== 'idle');
   show(q('#t-finish'), s === 'finished');
-  show(q('#t-done'), s === 'finished');
   show(q('#t-addbox'), s !== 'idle');
   show(q('#t-presets'), s === 'idle');
 
-  const controls = {
+  // Restart / Reset / Stop are always available once a timer exists
+  const row = `<div class="ctl-row">
+      <button class="btn secondary" data-act="restart">${icons.restart}Restart</button>
+      <button class="btn secondary" data-act="reset">${icons.reset}Reset</button>
+      <button class="btn secondary" data-act="stop">${icons.stop}Stop</button>
+    </div>`;
+  const main = {
     idle: `<button class="btn primary big wide" data-act="start">${icons.play}Start</button>`,
-    running: `<button class="btn secondary big" data-act="reset">${icons.reset}Reset</button>
-              <button class="btn primary big" data-act="pause">${icons.pause}Pause</button>`,
-    paused: `<button class="btn secondary big" data-act="reset">${icons.reset}Reset</button>
-             <button class="btn primary big" data-act="resume">${icons.play}Resume</button>`,
-    finished: '',
+    running: `<button class="btn primary big wide" data-act="pause">${icons.pause}Pause</button>${row}`,
+    paused: `<button class="btn primary big wide" data-act="resume">${icons.play}${isReady() ? 'Start' : 'Resume'}</button>${row}`,
+    finished: row,
   }[s];
-  q('#t-controls').innerHTML = controls;
+  q('#t-controls').innerHTML = main;
   renderFinish();
   update();
 }
 
 function renderFinish() {
   q('#t-stop').hidden = !ringing;
-  q('#t-restart-dur').textContent = shortDur(st.dur);
   q('#t-adds').innerHTML = cfg.adds
     .map((sec) => `<button class="chip" data-act="add" data-sec="${sec}">+ ${shortDur(sec)}</button>`)
     .join('');
@@ -301,7 +322,7 @@ function update() {
     if (cfg.label) bits.push(cfg.label);
     if (st.cycles > 1 && s !== 'finished') bits.push(`Cycle ${st.cycle} of ${st.cycles}`);
     if (s === 'running') bits.push(`Ends ${new Date(st.endAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}`);
-    if (s === 'paused') bits.push('Paused');
+    if (s === 'paused') bits.push(isReady() ? 'Ready' : 'Paused');
     q('#t-meta').textContent = bits.join(' · ');
     q('#t-over').textContent = over;
   } else {
@@ -486,12 +507,11 @@ export default {
           </div>
         </div>
 
-        <div class="controls" id="t-controls"></div>
-
         <div class="finish" id="t-finish" hidden>
           <button class="btn danger big wide" id="t-stop" data-act="silence" hidden>${icons.bellOff}Stop alarm</button>
-          <button class="btn primary big wide" data-act="restart">${icons.reset}Restart <span id="t-restart-dur"></span></button>
         </div>
+
+        <div class="controls stack" id="t-controls"></div>
 
         <div class="addbox" id="t-addbox" hidden>
           <div class="group-label" id="t-add-label">Add time</div>
@@ -501,8 +521,6 @@ export default {
             <button class="btn secondary small" data-act="add-custom">${icons.plus}Add</button>
           </div>
         </div>
-
-        <button class="btn ghost wide" id="t-done" data-act="reset" hidden>Done – back to timer</button>
       </section>
 
       <section class="card" id="t-presets">
@@ -573,9 +591,8 @@ export default {
     writePicker(cfg.dur);
 
     const actions = {
-      start, pause, resume, reset,
+      start, pause, resume, reset, stop, restart,
       silence,
-      restart: () => begin(st.dur),
       add: (b) => addSecs(Number(b.dataset.sec)),
       'add-custom': () => addSecs(customAddSecs),
       'add-option': () => { cfg.adds.push(60); saveCfg(); renderAddsEditor(); renderFinish(); },

@@ -123,6 +123,13 @@ main { width: 100%; max-width: 520px; margin: 0 auto; padding: 4px 16px 0; }
 .controls { display: flex; gap: 12px; margin-top: 18px; }
 .controls:empty { display: none; }
 .controls .btn { flex: 1; }
+.controls.stack { flex-direction: column; gap: 10px; margin-top: 12px; }
+.controls.stack .btn.big { min-height: 52px; }
+.controls.stack .btn.wide { flex: none; }
+.ctl-row { display: flex; gap: 10px; }
+.ctl-row .btn { flex-direction: column; gap: 2px; min-height: 54px; padding: 0 6px; font-size: 0.85rem; }
+.ctl-row .btn svg { width: 18px; height: 18px; }
+.ctl-row .btn[data-act="stop"] { color: var(--danger); }
 
 /* segmented radio group */
 .seg { display: flex; gap: 6px; padding: 4px; border-radius: 14px; background: var(--surface-2); }
@@ -193,7 +200,7 @@ main { width: 100%; max-width: 520px; margin: 0 auto; padding: 4px 16px 0; }
 @keyframes shake { 25% { transform: translateX(-8px); } 75% { transform: translateX(8px); } }
 
 /* sized by height too, so Pause and the Add-time chips stay on screen on short phones */
-.dial { position: relative; width: min(100%, 250px, 36dvh); aspect-ratio: 1; margin: 4px auto 0; }
+.dial { position: relative; width: min(100%, 250px, 29dvh); aspect-ratio: 1; margin: 4px auto 0; }
 .dial .time { font-size: clamp(2.2rem, 13vw, 3.6rem); }
 /* when time's up the buttons matter more than the ring */
 [data-state="finished"] .dial { width: min(100%, 170px, 24dvh); }
@@ -208,10 +215,10 @@ main { width: 100%; max-width: 520px; margin: 0 auto; padding: 4px 16px 0; }
 [data-state="finished"] .sub { color: var(--danger); }
 @keyframes pulse { 50% { opacity: 0.45; } }
 
-.finish { display: flex; flex-direction: column; gap: 12px; margin-top: 18px; text-align: left; }
-.addbox { display: flex; flex-direction: column; gap: 12px; margin-top: 20px; padding-top: 14px; border-top: 1px solid var(--line); text-align: left; }
+.finish { display: flex; flex-direction: column; gap: 12px; margin-top: 12px; text-align: left; }
+.finish:has(#t-stop[hidden]) { display: none; }
+.addbox { display: flex; flex-direction: column; gap: 10px; margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--line); text-align: left; }
 .addbox .group-label { margin-top: 0; }
-#t-done { margin-top: 8px; }
 .group-label { margin-top: 6px; font-size: 0.8rem; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
 .custom-add { display: flex; align-items: center; gap: 10px; }
 .custom-add .durfield { margin-left: auto; }
