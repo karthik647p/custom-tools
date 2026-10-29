@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Custom Tools</title>
+  <meta name="description" content="A set of handy tools: customizable timer, stopwatch and more.">
+  <meta name="theme-color" content="#0b1020">
+  <meta name="color-scheme" content="dark light">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="Tools">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" href="icons/icon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+  <link rel="stylesheet" href="css/app.css">
+</head>
+<body>
+  <header class="appbar">
+    <h1 id="tool-title">Timer</h1>
+    <button id="install-btn" class="btn small" hidden>Install app</button>
+  </header>
+
+  <main id="panels"></main>
+
+  <nav class="tabbar" id="tabbar" role="tablist" aria-label="Tools"></nav>
+
+  <div id="toast" class="toast" role="status" aria-live="polite"></div>
+
+  <noscript>This app needs JavaScript to run.</noscript>
+  <script type="module" src="js/app.js"></script>
+</body>
+</html>
