@@ -334,6 +334,7 @@ function update() {
     q('#t-over').textContent = over;
   } else {
     q('#t-meta').textContent = cfg.label;
+    q('#t-over').textContent = ''; // don't leave "Over by" showing on the setup screen
   }
   document.title = s === 'running' ? `${clock(left)} · Timer` : s === 'finished' ? "⏰ Time's up" : 'Custom Tools';
 }
