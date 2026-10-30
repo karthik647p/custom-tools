@@ -434,6 +434,7 @@ function renderPresets() {
 }
 
 function updateCustomUi() {
+  q('#t-custom-box').hidden = cfg.sound !== 'custom'; // file picker only matters for the Custom sound
   q('#t-custom-name').textContent = customName || 'No file chosen';
   q('#t-custom-clear').hidden = !customName;
   q('#t-custom-note').hidden = cfg.sound !== 'custom' || !!customName;
@@ -543,13 +544,15 @@ export default {
         <div class="seg" role="radiogroup" aria-label="Alarm sound">
           ${radio('sound', 'soft', 'Soft beep')}${radio('sound', 'loud', 'Loud beep')}${radio('sound', 'custom', 'Custom')}
         </div>
-        <div class="file-row">
-          <button class="btn secondary small" data-act="browse">Browse…</button>
-          <span class="file-name" id="t-custom-name">No file chosen</span>
-          <button class="icon-btn" id="t-custom-clear" data-act="clear-custom" aria-label="Remove custom sound" hidden>×</button>
-          <input type="file" id="t-file" accept="audio/*" hidden>
+        <div id="t-custom-box" hidden>
+          <div class="file-row">
+            <button class="btn secondary small" data-act="browse">Browse…</button>
+            <span class="file-name" id="t-custom-name">No file chosen</span>
+            <button class="icon-btn" id="t-custom-clear" data-act="clear-custom" aria-label="Remove custom sound" hidden>×</button>
+            <input type="file" id="t-file" accept="audio/*" hidden>
+          </div>
+          <p class="hint" id="t-custom-note" hidden>Pick an audio file from your phone. Until then, the loud beep is used.</p>
         </div>
-        <p class="hint" id="t-custom-note" hidden>Pick an audio file from your phone. Until then, the loud beep is used.</p>
         <div class="vol-row">
           <span>Volume</span>
           <input type="range" min="5" max="100" step="5" data-cfg="volume" aria-label="Volume">
