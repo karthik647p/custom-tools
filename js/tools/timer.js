@@ -186,23 +186,18 @@ function stop() {
   render();
 }
 
-/** Reset: back to the full time, waiting for you to press Start. */
+/** Reset: clear the timer back to 00:00:00 on the setup screen. */
 function reset() {
-  if (st.status === 'idle') return;
-  silence();
-  const ms = st.dur * 1000;
-  st = { status: 'paused', total: ms, left: ms, cycle: 1, cycles: st.cycles, dur: st.dur };
-  persist();
-  syncRuntime();
-  render();
+  stop();
+  cfg.dur = 0;
+  saveCfg();
+  writePicker(0);
 }
 
 /** Restart: run the full time again from the top, immediately. */
 function restart() {
   if (st.status !== 'idle') begin(st.dur);
 }
-
-const isReady = () => st.status === 'paused' && st.left >= st.total;
 
 function complete() {
   const now = Date.now();
@@ -289,7 +284,7 @@ function render() {
   const main = {
     idle: `<button class="btn primary big wide" data-act="start">${icons.play}Start</button>`,
     running: `<button class="btn primary big wide" data-act="pause">${icons.pause}Pause</button>${row}`,
-    paused: `<button class="btn primary big wide" data-act="resume">${icons.play}${isReady() ? 'Start' : 'Resume'}</button>${row}`,
+    paused: `<button class="btn primary big wide" data-act="resume">${icons.play}Resume</button>${row}`,
     finished: row,
   }[s];
   q('#t-controls').innerHTML = main;
@@ -322,7 +317,7 @@ function update() {
     if (cfg.label) bits.push(cfg.label);
     if (st.cycles > 1 && s !== 'finished') bits.push(`Cycle ${st.cycle} of ${st.cycles}`);
     if (s === 'running') bits.push(`Ends ${new Date(st.endAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}`);
-    if (s === 'paused') bits.push(isReady() ? 'Ready' : 'Paused');
+    if (s === 'paused') bits.push('Paused');
     q('#t-meta').textContent = bits.join(' · ');
     q('#t-over').textContent = over;
   } else {
