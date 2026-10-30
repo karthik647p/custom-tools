@@ -212,7 +212,8 @@ main { width: 100%; max-width: 520px; margin: 0 auto; padding: 4px 16px 0; }
 [data-state="paused"] .time { opacity: 0.6; }
 [data-state="finished"] .prog { stroke: var(--danger); }
 [data-state="finished"] .time { color: var(--danger); animation: pulse 1s ease-in-out infinite; }
-[data-state="finished"] .sub { color: var(--danger); }
+.over { margin-top: 8px; color: var(--danger); font-weight: 700; font-variant-numeric: tabular-nums; }
+.over:empty { display: none; }
 @keyframes pulse { 50% { opacity: 0.45; } }
 
 .finish { display: flex; flex-direction: column; gap: 12px; margin-top: 12px; text-align: left; }

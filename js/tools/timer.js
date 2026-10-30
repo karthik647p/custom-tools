@@ -186,6 +186,16 @@ function stop() {
   render();
 }
 
+/** "Stop alarm" button: silence the sound and freeze the Over-by counter. */
+function stopAlarm() {
+  if (st.status === 'finished' && st.silencedAt == null) {
+    st = { ...st, silencedAt: Date.now() };
+    persist();
+  }
+  silence();
+  update();
+}
+
 /** Reset: clear the timer back to 00:00:00 on the setup screen. */
 function reset() {
   stop();
@@ -311,7 +321,8 @@ function update() {
     timeEl.textContent = clock(left);
     const frac = s === 'finished' ? 1 : left / st.total;
     q('#t-prog').style.strokeDashoffset = CIRC * (1 - frac);
-    const over = s === 'finished' ? `Over by +${clock(now - st.endAt, 'floor')}` : '';
+    // keeps counting until you stop the alarm, then freezes at how late you were
+    const over = s === 'finished' ? `Over by +${clock((st.silencedAt ?? now) - st.endAt, 'floor')}` : '';
     const bits = [];
     if (s === 'finished') bits.push("Time's up!");
     if (cfg.label) bits.push(cfg.label);
@@ -498,9 +509,9 @@ export default {
           </svg>
           <div class="dial-center">
             <div class="time" id="t-time">00:00</div>
-            <div class="sub" id="t-over"></div>
           </div>
         </div>
+        <div class="over" id="t-over"></div>
 
         <div class="finish" id="t-finish" hidden>
           <button class="btn danger big wide" id="t-stop" data-act="silence" hidden>${icons.bellOff}Stop alarm</button>
@@ -587,7 +598,7 @@ export default {
 
     const actions = {
       start, pause, resume, reset, stop, restart,
-      silence,
+      silence: stopAlarm,
       add: (b) => addSecs(Number(b.dataset.sec)),
       'add-custom': () => addSecs(customAddSecs),
       'add-option': () => { cfg.adds.push(60); saveCfg(); renderAddsEditor(); renderFinish(); },
@@ -631,6 +642,7 @@ export default {
 
     // resume a countdown that was running when the page was closed/reloaded
     if (st.status === 'running' && Date.now() >= st.endAt) st = { ...st, status: 'finished' };
+    if (st.status === 'finished' && st.silencedAt == null) st = { ...st, silencedAt: Date.now() }; // nothing rings after a reload
     if (st.status === 'running') { writePicker(cfg.dur); arm(); }
     render();
     syncRuntime();
