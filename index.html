@@ -21,7 +21,10 @@
     <button id="install-btn" class="btn small" hidden>Install app</button>
   </header>
 
-  <main id="panels"></main>
+  <main id="panels">
+    <!-- app.js removes this once it has started; if it stays, the scripts didn't load -->
+    <p id="boot-msg" class="card hint">Loading… If this message stays, reload the page. The app must be opened from its web address (https://…), not as a file on the phone.</p>
+  </main>
 
   <nav class="tabbar" id="tabbar" role="tablist" aria-label="Tools"></nav>
 

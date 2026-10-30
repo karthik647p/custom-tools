@@ -15,17 +15,23 @@ Write-Host "Serving $root at http://localhost:$Port/"
 
 while ($listener.IsListening) {
   $ctx = $listener.GetContext()
-  $path = [Uri]::UnescapeDataString($ctx.Request.Url.AbsolutePath).TrimStart('/')
-  if ($path -eq '') { $path = 'index.html' }
-  $file = [IO.Path]::GetFullPath((Join-Path $root $path))
-  if ($file.StartsWith($root) -and (Test-Path $file -PathType Leaf)) {
-    $bytes = [IO.File]::ReadAllBytes($file)
-    $ext = [IO.Path]::GetExtension($file).ToLower()
-    $ctx.Response.ContentType = if ($types.ContainsKey($ext)) { $types[$ext] } else { 'application/octet-stream' }
-    $ctx.Response.Headers.Add('Cache-Control', 'no-cache')
-    $ctx.Response.OutputStream.Write($bytes, 0, $bytes.Length)
-  } else {
-    $ctx.Response.StatusCode = 404
+  try {
+    $path = [Uri]::UnescapeDataString($ctx.Request.Url.AbsolutePath).TrimStart('/')
+    if ($path -eq '') { $path = 'index.html' }
+    $file = [IO.Path]::GetFullPath((Join-Path $root $path))
+    if ($file.StartsWith($root) -and (Test-Path $file -PathType Leaf)) {
+      $bytes = [IO.File]::ReadAllBytes($file)
+      $ext = [IO.Path]::GetExtension($file).ToLower()
+      $ctx.Response.ContentType = if ($types.ContainsKey($ext)) { $types[$ext] } else { 'application/octet-stream' }
+      $ctx.Response.Headers.Add('Cache-Control', 'no-cache')
+      $ctx.Response.ContentLength64 = $bytes.Length
+      if ($ctx.Request.HttpMethod -ne 'HEAD') { $ctx.Response.OutputStream.Write($bytes, 0, $bytes.Length) }
+    } else {
+      $ctx.Response.StatusCode = 404
+    }
+  } catch {
+    Write-Host "Request failed: $($_.Exception.Message)"
+  } finally {
+    try { $ctx.Response.Close() } catch { }
   }
-  $ctx.Response.Close()
 }

@@ -68,7 +68,8 @@ function setRinging(on) {
   ringing = on;
   clearInterval(vibeTimer);
   if (on && cfg.vibrate && navigator.vibrate) {
-    const buzz = () => navigator.vibrate([400, 200, 400]);
+    // browsers only allow vibration after the page has been tapped at least once
+    const buzz = () => { if (navigator.userActivation?.hasBeenActive !== false) navigator.vibrate([400, 200, 400]); };
     buzz();
     vibeTimer = setInterval(buzz, 1500);
   } else {

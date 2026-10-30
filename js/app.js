@@ -7,6 +7,7 @@ import stopwatch from './tools/stopwatch.js';
 // The first entry is the first tab.
 const tools = [timer, stopwatch];
 
+$('#boot-msg')?.remove();
 const tabbar = $('#tabbar');
 const panels = $('#panels');
 const titleEl = $('#tool-title');
