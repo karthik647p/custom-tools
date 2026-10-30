@@ -23,9 +23,9 @@
     --line: #c3c3c3;
     --text: #1d1d1d;
     --muted: #595959;
-    --accent: #0c8a5f;
+    --accent: #141414;      /* black: buttons, selected options, ring while running */
     --on-accent: #ffffff;
-    --danger: #cc2b3c;
+    --danger: #0c8a5f;      /* green: time's up, Stop alarm, Stop */
     --on-danger: #ffffff;
     --track: #cdcdcd;
     color-scheme: light;
