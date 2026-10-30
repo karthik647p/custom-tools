@@ -33,6 +33,11 @@ let editingPresets = false;
 let customAddSecs = 120;
 let customName = '';
 
+const LATE_MS = 2500;        // finishing this much after the end time = page was frozen
+const SUSPEND_MS = 20000;    // a tick gap this long = page was frozen
+let lastTick = Date.now();
+let suspendedMs = 0;         // total time the phone froze the page during this countdown
+
 const saveCfg = () => save('timer.cfg', cfg);
 const persist = () => save('timer.state', st);
 const q = (sel) => $(sel, root);
@@ -106,7 +111,8 @@ function syncRuntime() {
   if (active && cfg.keepAlive) keepAlive.start(); else keepAlive.stop();
   if ('mediaSession' in navigator) {
     if (st.status === 'running') {
-      navigator.mediaSession.metadata = new MediaMetadata({ title: cfg.label || 'Timer running', artist: 'Custom Tools' });
+      const ends = new Date(st.endAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+      navigator.mediaSession.metadata = new MediaMetadata({ title: `${cfg.label || 'Timer'} · rings at ${ends}`, artist: 'Custom Tools' });
       navigator.mediaSession.playbackState = 'playing';
       navigator.mediaSession.setActionHandler('pause', () => pause());
     } else {
@@ -139,6 +145,7 @@ function closeNotification() {
 function begin(secs, { cycle = 1, cycles = cfg.cycles, dur = secs } = {}) {
   alarm.unlock();
   silence();
+  suspendedMs = 0;
   st = { status: 'running', total: secs * 1000, endAt: Date.now() + secs * 1000, left: 0, cycle, cycles, dur };
   arm();
   persist();
@@ -181,6 +188,7 @@ function resume() {
 /** Stop: cancel the timer, silence any alarm and go back to the time picker. */
 function stop() {
   silence();
+  suspendedMs = 0;
   st = { status: 'idle' };
   persist();
   syncRuntime();
@@ -220,12 +228,16 @@ function complete() {
     render();
     return;
   }
-  if (!armed || !alarm.running()) {      // audio clock wasn't running (e.g. never unlocked): try now
+  // If this code only woke up long after the end time, the phone had frozen the page. Audio that was
+  // queued on a suspended clock is stale (it would play even later), so ring right now instead.
+  const late = now - st.endAt;
+  const frozen = late > LATE_MS;
+  if (frozen || !armed || !alarm.running()) {
     disarm();
     armed = alarm.play(soundOpts(true));
     if (armed) armed.onended = () => { armed = null; setRinging(false); };
   }
-  st = { ...st, status: 'finished' };
+  st = { ...st, status: 'finished', lateMs: frozen ? late : 0 };
   persist();
   render();
   setRinging(!!armed);
@@ -256,7 +268,11 @@ function extend(secs) {
 const addSecs = (secs) => (st.status === 'finished' ? addTime(secs) : extend(secs));
 
 function tick() {
-  if (st.status === 'running' && Date.now() >= st.endAt) complete();
+  const now = Date.now();
+  // this runs every 250 ms; a big gap means the phone froze the page (screen off / battery saver)
+  if (st.status === 'running' && now - lastTick > SUSPEND_MS) suspendedMs += now - lastTick;
+  lastTick = now;
+  if (st.status === 'running' && now >= st.endAt) complete();
   update();
 }
 
@@ -332,7 +348,13 @@ function update() {
     if (s === 'paused') bits.push('Paused');
     q('#t-meta').textContent = bits.join(' · ');
     q('#t-over').textContent = over;
+    // tell the user when the phone froze the app, so a late alarm isn't a mystery
+    let late = '';
+    if (s === 'finished' && st.lateMs) late = `Your phone paused this app, so the alarm was ${clock(st.lateMs, 'floor')} late.`;
+    else if (s === 'running' && suspendedMs > SUSPEND_MS) late = `Your phone paused this app for ${clock(suspendedMs, 'floor')} (screen off). See "Make the alarm reliable" below.`;
+    q('#t-late').textContent = late;
   } else {
+    q('#t-late').textContent = '';
     q('#t-meta').textContent = cfg.label;
     q('#t-over').textContent = ''; // don't leave "Over by" showing on the setup screen
   }
@@ -515,6 +537,7 @@ export default {
           </div>
         </div>
         <div class="over" id="t-over"></div>
+        <div class="late" id="t-late" role="status"></div>
 
         <div class="finish" id="t-finish" hidden>
           <button class="btn danger big wide" id="t-stop" data-act="silence" hidden>${icons.bellOff}Stop alarm</button>
@@ -587,8 +610,20 @@ export default {
         <label class="setting"><span><b>Repeat cycles</b><small>Chimes between cycles, rings the alarm on the last</small></span>
           <input type="number" class="text narrow" min="1" max="99" inputmode="numeric" data-cfg="cycles"></label>
         ${toggle('wake', 'Keep screen on', 'While the timer runs or rings')}
-        ${toggle('keepAlive', 'Keep running with screen off', 'Plays silence so Android keeps the timer alive')}
+        ${toggle('keepAlive', 'Keep running with screen off', 'Plays an inaudible tone so Android keeps the timer alive')}
         ${toggle('notify', 'Notify when done', 'Shows an alert if the app is in the background')}
+      </section>
+
+      <section class="card" id="t-tips">
+        <div class="card-head"><h2>Make the alarm reliable</h2></div>
+        <p class="hint tight">A web app can't wake a sleeping phone by itself. Android freezes apps with the screen off unless they are playing audio, so for a screen-off timer:</p>
+        <ol class="tips">
+          <li>Install it (Chrome menu → <b>Install app</b>) and open it from the home-screen icon.</li>
+          <li>Keep <b>Keep running with screen off</b> turned on above. Start the timer by tapping <b>Start</b> (a tap is required), and look for the media card on your lock screen. It means the timer is alive.</li>
+          <li>Android Settings → Apps → <b>Chrome</b> (and this app, if listed) → Battery → set to <b>Unrestricted</b>.</li>
+          <li>Don't swipe the app away from recent apps, and turn off battery saver while timing.</li>
+          <li>Try a 1-minute test with the screen off before relying on it.</li>
+        </ol>
       </section>`;
 
     // time picker behavior
@@ -657,6 +692,7 @@ export default {
     document.addEventListener('visibilitychange', () => {
       if (document.hidden) return;
       tick();
+      if (st.status === 'running') arm(); // audio queued while the page was frozen is stale; requeue from the real end time
       syncRuntime(); // wake lock is released when the page is hidden
     });
     alarm.onUnlock(() => { if (st.status === 'running') arm(); syncRuntime(); });

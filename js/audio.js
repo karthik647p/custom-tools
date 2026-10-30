@@ -10,6 +10,8 @@ function getCtx() {
     const C = window.AudioContext || window.webkitAudioContext;
     if (!C) return null;
     ctx = new C({ latencyHint: 'playback' });
+    // the phone may suspend audio while the screen is off; tell listeners when it wakes so they can reschedule
+    ctx.addEventListener('statechange', () => { if (ctx.state === 'running') unlockListeners.forEach((fn) => fn()); });
   }
   return ctx;
 }
@@ -109,28 +111,35 @@ export const alarm = {
   },
 };
 
-// A silent looping <audio> keeps the page "playing media" so Android is less eager
-// to freeze it when the screen turns off mid-countdown.
-let keepEl = null;
-function silentWavUrl() {
-  const rate = 8000, n = rate; // 1 second of silence, 8-bit mono
-  const b = new DataView(new ArrayBuffer(44 + n));
+// Keep-alive: a looping <audio> that Chrome counts as real playback, so Android doesn't freeze the
+// page when the screen turns off. Pure digital silence does NOT work: Chrome treats it as "not
+// playing audio" and freezes the page anyway. So this is a 20 Hz tone at about -50 dBFS: well above
+// Chrome's silence threshold (~-72 dBFS) but far below hearing and below what phone speakers can produce.
+export const KEEPALIVE = { rate: 8000, hz: 20, amp: 0.004 };
+
+/** 1 second of mono 16-bit PCM WAV; exactly 20 whole cycles, so the loop has no click. */
+export function keepAliveWav() {
+  const { rate, hz, amp } = KEEPALIVE;
+  const bytes = rate * 2;
+  const b = new DataView(new ArrayBuffer(44 + bytes));
   const w = (o, s) => [...s].forEach((ch, i) => b.setUint8(o + i, ch.charCodeAt(0)));
-  w(0, 'RIFF'); b.setUint32(4, 36 + n, true); w(8, 'WAVE'); w(12, 'fmt ');
+  w(0, 'RIFF'); b.setUint32(4, 36 + bytes, true); w(8, 'WAVE'); w(12, 'fmt ');
   b.setUint32(16, 16, true); b.setUint16(20, 1, true); b.setUint16(22, 1, true);
-  b.setUint32(24, rate, true); b.setUint32(28, rate, true); b.setUint16(32, 1, true); b.setUint16(34, 8, true);
-  w(36, 'data'); b.setUint32(40, n, true);
-  for (let i = 0; i < n; i++) b.setUint8(44 + i, 128);
-  return URL.createObjectURL(new Blob([b], { type: 'audio/wav' }));
+  b.setUint32(24, rate, true); b.setUint32(28, rate * 2, true); b.setUint16(32, 2, true); b.setUint16(34, 16, true);
+  w(36, 'data'); b.setUint32(40, bytes, true);
+  for (let i = 0; i < rate; i++) b.setInt16(44 + i * 2, Math.round(Math.sin((2 * Math.PI * hz * i) / rate) * amp * 32767), true);
+  return new Blob([b], { type: 'audio/wav' });
 }
 
+let keepEl = null;
 export const keepAlive = {
   start() {
     if (!keepEl) {
-      keepEl = new Audio(silentWavUrl());
+      keepEl = new Audio(URL.createObjectURL(keepAliveWav()));
       keepEl.loop = true;
     }
     if (keepEl.paused) keepEl.play().catch(() => {});
   },
   stop() { keepEl?.pause(); },
+  get playing() { return !!keepEl && !keepEl.paused; },
 };

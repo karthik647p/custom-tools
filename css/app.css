@@ -215,6 +215,11 @@ main { width: 100%; max-width: 520px; margin: 0 auto; padding: 4px 16px 0; }
 [data-state="finished"] .time { color: var(--danger); animation: pulse 1s ease-in-out infinite; }
 .over { margin-top: 8px; color: var(--danger); font-weight: 700; font-variant-numeric: tabular-nums; }
 .over:empty { display: none; }
+.late { margin-top: 8px; padding: 8px 12px; border-radius: 10px; background: var(--surface-2); color: var(--text); font-size: 0.85rem; font-weight: 600; }
+.late:empty { display: none; }
+.hint.tight { margin: 0 0 8px; }
+.tips { margin: 0; padding-left: 20px; display: grid; gap: 8px; font-size: 0.9rem; color: var(--muted); }
+.tips b { color: var(--text); }
 @keyframes pulse { 50% { opacity: 0.45; } }
 
 .finish { display: flex; flex-direction: column; gap: 12px; margin-top: 12px; text-align: left; }
