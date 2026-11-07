@@ -18,9 +18,9 @@ function getCtx() {
 
 const SPECS = {
   // gentle double "bip"
-  soft: { wave: 'sine', freqs: [660, 660], on: 0.2, off: 0.14, tail: 0.95, amp: 0.45, atk: 0.025, rel: 0.12 },
+  soft: { wave: 'sine', freqs: [660, 660], on: 0.2, off: 0.14, tail: 0.95, amp: 0.3, atk: 0.025, rel: 0.12 },
   // piercing alternating siren-style burst
-  loud: { wave: 'square', freqs: [1100, 1500, 1100, 1500], on: 0.13, off: 0.07, tail: 0.5, amp: 0.7, atk: 0.004, rel: 0.012 },
+  loud: { wave: 'square', freqs: [1100, 1500, 1100, 1500, 1100, 1500], on: 0.14, off: 0.05, tail: 0.4, amp: 0.95, atk: 0.003, rel: 0.01 },
 };
 
 function synth(kind) {
@@ -48,6 +48,21 @@ function bufferFor(kind) {
   return (buffers[k] ||= synth(k));
 }
 
+/**
+ * Slider (0-1) to gain. Hearing is logarithmic, so a linear slider barely seems to change anything
+ * (50% would only be -6 dB). This maps the slider linearly in decibels: 100% = full, 50% = -15 dB, 5% = -28 dB.
+ */
+export const volToGain = (v) => 10 ** ((-30 * (1 - Math.min(1, Math.max(0, v)))) / 20);
+
+/** Loudness (dBFS RMS, over the beep part only) of a built-in sound at a slider setting; used for testing. */
+export function levelDb(kind, volume = 1) {
+  const buf = bufferFor(kind);
+  const d = buf.getChannelData(0);
+  let sum = 0, n = 0;
+  for (let i = 0; i < d.length; i++) if (Math.abs(d[i]) > 1e-4) { sum += d[i] * d[i]; n++; }
+  return 10 * Math.log10(sum / n) + 20 * Math.log10(volToGain(volume));
+}
+
 export const alarm = {
   get supported() { return !!(window.AudioContext || window.webkitAudioContext); },
   running: () => !!ctx && ctx.state === 'running',
@@ -72,6 +87,13 @@ export const alarm = {
     const gap = Math.floor(decoded.sampleRate * 0.6);
     const out = c.createBuffer(decoded.numberOfChannels, decoded.length + gap, decoded.sampleRate);
     for (let ch = 0; ch < decoded.numberOfChannels; ch++) out.getChannelData(ch).set(decoded.getChannelData(ch));
+    // normalise: a quiet recording would otherwise ignore the volume setting's range
+    let peak = 0;
+    for (let ch = 0; ch < out.numberOfChannels; ch++) for (const s of out.getChannelData(ch)) peak = Math.max(peak, Math.abs(s));
+    if (peak > 0) {
+      const k = Math.min(8, 0.9 / peak);
+      for (let ch = 0; ch < out.numberOfChannels; ch++) { const d = out.getChannelData(ch); for (let i = 0; i < d.length; i++) d[i] *= k; }
+    }
     customBuf = out;
     return decoded.duration;
   },
@@ -90,7 +112,7 @@ export const alarm = {
     src.buffer = bufferFor(kind);
     src.loop = loop;
     const gain = c.createGain();
-    gain.gain.value = volume;
+    gain.gain.value = volToGain(volume);
     src.connect(gain).connect(c.destination);
     const t0 = c.currentTime + delay;
     src.start(t0);
@@ -104,7 +126,7 @@ export const alarm = {
         try { src.stop(); } catch { /* not started */ }
         try { src.disconnect(); gain.disconnect(); } catch { /* already gone */ }
       },
-      setVolume(v) { gain.gain.value = v; },
+      setVolume(v) { gain.gain.value = volToGain(v); },
     };
     src.onended = () => { handle.ended = true; handle.onended?.(); };
     return handle;

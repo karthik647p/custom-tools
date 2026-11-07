@@ -6,9 +6,11 @@ const DEFAULTS = {
   dur: 30,            // last used duration (seconds)
   label: '',
   sound: 'soft',      // soft | loud | custom
-  volume: 0.8,
+  volume: 1,
   mode: 'once',       // once | for | until
   forSecs: 60,        // how long to beep when mode === 'for'
+  overrun: 'off',     // forgot to stop it? off | 5 | 10 | custom: minutes after time's up, then reset to 00:00:00
+  overrunSecs: 120,   // used when overrun === 'custom'
   vibrate: true,
   adds: [30, 60, 300],// quick "add time" buttons on the finish screen (seconds)
   cycles: 1,          // repeat the countdown N times; last one rings the alarm
@@ -19,6 +21,9 @@ const DEFAULTS = {
 const MAX_SOUND_BYTES = 8 * 1024 * 1024;
 
 let cfg = { ...DEFAULTS, ...load('timer.cfg', {}) };
+// v2: the volume slider became decibel-based, so older saved settings (0.8) would sound quieter; start from full
+if (load('timer.cfgv', 1) < 2) { cfg.volume = 1; save('timer.cfg', cfg); save('timer.cfgv', 2); }
+let lastRun = load('timer.last', null);   // set when a timer auto-reset after running over
 let presets = load('timer.presets', [30, 60, 300, 600, 900]);
 // st: { status: idle|running|paused|finished, total, endAt, left, cycle, cycles, dur }
 let st = load('timer.state', { status: 'idle' });
@@ -146,6 +151,7 @@ function begin(secs, { cycle = 1, cycles = cfg.cycles, dur = secs } = {}) {
   alarm.unlock();
   silence();
   suspendedMs = 0;
+  if (lastRun) { lastRun = null; save('timer.last', null); }
   st = { status: 'running', total: secs * 1000, endAt: Date.now() + secs * 1000, left: 0, cycle, cycles, dur };
   arm();
   persist();
@@ -267,8 +273,24 @@ function extend(secs) {
 
 const addSecs = (secs) => (st.status === 'finished' ? addTime(secs) : extend(secs));
 
+/** How long after time's up the timer keeps going before it turns itself off (ms), or 0 for never. */
+function overrunMs() {
+  if (cfg.overrun === 'off') return 0;
+  if (cfg.overrun === 'custom') return cfg.overrunSecs * 1000;
+  return Number(cfg.overrun) * 60000;
+}
+
+/** Forgot to stop it: after the allowed over-run, silence everything and clear back to 00:00:00. */
+function autoReset() {
+  lastRun = { dur: st.dur, endedAt: st.endAt, afterMs: overrunMs() };
+  save('timer.last', lastRun);
+  reset();
+}
+
 function tick() {
   const now = Date.now();
+  const limit = overrunMs();
+  if (st.status === 'finished' && limit && now - st.endAt >= limit) { autoReset(); return; }
   // this runs every 250 ms; a big gap means the phone froze the page (screen off / battery saver)
   if (st.status === 'running' && now - lastTick > SUSPEND_MS) suspendedMs += now - lastTick;
   lastTick = now;
@@ -355,6 +377,9 @@ function update() {
     q('#t-late').textContent = late;
   } else {
     q('#t-late').textContent = '';
+    q('#t-last').textContent = lastRun
+      ? `Last timer (${shortDur(lastRun.dur)}) rang at ${new Date(lastRun.endedAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}, ran ${shortDur(Math.round(lastRun.afterMs / 1000))} over, then reset itself.`
+      : '';
     q('#t-meta').textContent = cfg.label;
     q('#t-over').textContent = ''; // don't leave "Over by" showing on the setup screen
   }
@@ -390,6 +415,7 @@ function initSettings() {
 
   // "beep for N" duration
   q('#t-for-wrap').append(durField(cfg.forSecs, (s) => { cfg.forSecs = s; saveCfg(); arm(); }, 'Beep duration'));
+  q('#t-overrun-wrap').append(durField(cfg.overrunSecs, (s) => { cfg.overrunSecs = s; saveCfg(); }, 'Turn off after'));
 
   // custom add-time chips editor
   renderAddsEditor();
@@ -412,7 +438,7 @@ function initSettings() {
 function onCfgChanged(key) {
   saveCfg();
   if (key === 'sound' || key === 'mode' || key === 'cycles' || key === 'volume') arm();
-  if (key === 'mode') syncModeUi();
+  if (key === 'mode' || key === 'overrun') syncModeUi();
   if (key === 'volume') q('#t-vol-out').textContent = `${Math.round(cfg.volume * 100)}%`;
   if (key === 'wake' || key === 'keepAlive') syncRuntime();
   if (key === 'vibrate' && !cfg.vibrate) navigator.vibrate?.(0);
@@ -425,6 +451,7 @@ function onCfgChanged(key) {
 
 function syncModeUi() {
   q('#t-for-wrap').hidden = cfg.mode !== 'for';
+  q('#t-overrun-wrap').hidden = cfg.overrun !== 'custom';
 }
 
 function renderAddsEditor() {
@@ -527,6 +554,8 @@ export default {
           <label><input id="t-s" inputmode="numeric" maxlength="2" aria-label="Seconds"><span>sec</span></label>
         </div>
 
+        <div class="last" id="t-last" role="status"></div>
+
         <div class="dial" id="t-dial" hidden>
           <svg viewBox="0 0 200 200" aria-hidden="true">
             <circle class="track" cx="100" cy="100" r="90"/>
@@ -594,6 +623,12 @@ export default {
         </div>
         <div class="inline-field" id="t-for-wrap" hidden><span>Beep for</span></div>
         ${toggle('vibrate', 'Vibrate', 'Buzz along with the alarm')}
+        <div class="group-label sp">If I forget to stop it</div>
+        <p class="hint tight">The timer keeps running after time's up, then switches itself off and clears to 00:00:00.</p>
+        <div class="seg" role="radiogroup" aria-label="Turn the timer off after">
+          ${radio('overrun', 'off', 'Never')}${radio('overrun', '5', '5 min')}${radio('overrun', '10', '10 min')}${radio('overrun', 'custom', 'Custom')}
+        </div>
+        <div class="inline-field" id="t-overrun-wrap" hidden><span>Turn off after</span></div>
       </section>
 
       <section class="card">
