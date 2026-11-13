@@ -29,7 +29,8 @@ let presets = load('timer.presets', [30, 60, 300, 600, 900]);
 let st = load('timer.state', { status: 'idle' });
 
 let root;
-let armed = null;       // alarm sound scheduled for the end of the current countdown
+let armed = null;       // alarm sound queued for the end of the current countdown
+let sounding = null;    // alarm sound that is playing right now
 let testing = null;
 let ringing = false;
 let vibeTimer = 0;
@@ -49,12 +50,16 @@ const q = (sel) => $(sel, root);
 
 /* ---------- alarm scheduling ---------- */
 
-function soundOpts(isFinal) {
+/** How the alarm sounds at the end of every round, per the "When time's up" setting. */
+function soundOpts() {
   const o = { kind: cfg.sound, volume: cfg.volume };
-  if (!isFinal || cfg.mode === 'once') return o;               // single play
+  if (cfg.mode === 'once') return o;                            // single play
   if (cfg.mode === 'for') return { ...o, loop: true, seconds: cfg.forSecs };
   return { ...o, loop: true };                                  // until I stop it
 }
+
+/** Total rounds. "Beep until I stop it" never ends by itself, so it can't repeat. */
+const rounds = () => (cfg.mode === 'until' ? 1 : Math.max(1, cfg.cycles));
 
 function disarm() {
   armed?.stop();
@@ -66,7 +71,7 @@ function arm() {
   disarm();
   if (st.status !== 'running') return;
   const delay = Math.max(0, (st.endAt - Date.now()) / 1000);
-  const handle = alarm.play({ ...soundOpts(st.cycle >= st.cycles), delay });
+  const handle = alarm.play({ ...soundOpts(), delay });
   if (!handle) return;
   handle.onended = () => {
     if (armed === handle) { armed = null; setRinging(false); }
@@ -86,13 +91,21 @@ function setRinging(on) {
     navigator.vibrate?.(0);
   }
   syncRuntime();
-  if (st.status === 'finished') renderFinish();
+  renderFinish();
 }
 
-function silence() {
-  disarm();
+/** Stop the sound that is playing right now (the next round's alarm, if any, stays queued). */
+function silenceNow() {
+  sounding?.stop();
+  sounding = null;
   setRinging(false);
   closeNotification();
+}
+
+/** Stop everything: the sound now and any queued alarm. */
+function silence() {
+  disarm();
+  silenceNow();
 }
 
 /* ---------- screen / background / lock-screen ---------- */
@@ -127,12 +140,13 @@ function syncRuntime() {
   }
 }
 
-function notifyDone() {
+function notifyDone(round = 1, total = 1) {
   if (!cfg.notify || !document.hidden || !('Notification' in window) || Notification.permission !== 'granted') return;
   navigator.serviceWorker?.ready.then((reg) =>
     reg.showNotification("Time's up!", {
-      body: cfg.label || shortDur(st.dur),
+      body: [cfg.label || shortDur(st.dur), total > 1 && `round ${round} of ${total}`].filter(Boolean).join(' · '),
       tag: 'timer',
+      renotify: true,
       requireInteraction: true,
       icon: 'icons/icon-192.png',
     }));
@@ -147,7 +161,7 @@ function closeNotification() {
 
 /* ---------- state machine ---------- */
 
-function begin(secs, { cycle = 1, cycles = cfg.cycles, dur = secs } = {}) {
+function begin(secs, { cycle = 1, cycles = rounds(), dur = secs } = {}) {
   alarm.unlock();
   silence();
   suspendedMs = 0;
@@ -201,13 +215,13 @@ function stop() {
   render();
 }
 
-/** "Stop alarm" button: silence the sound and freeze the Over-by counter. */
+/** "Stop alarm" button: silence the sound (a running repeat timer keeps going) and freeze the Over-by counter. */
 function stopAlarm() {
   if (st.status === 'finished' && st.silencedAt == null) {
     st = { ...st, silencedAt: Date.now() };
     persist();
   }
-  silence();
+  silenceNow();
   update();
 }
 
@@ -224,30 +238,42 @@ function restart() {
   if (st.status !== 'idle') begin(st.dur);
 }
 
+/** A round's countdown reached zero: ring, then either start the next round or finish. */
 function complete() {
   const now = Date.now();
-  if (st.cycle < st.cycles) {            // intermediate cycle: chime already played, go again
-    const d = st.dur * 1000;
-    st = { ...st, cycle: st.cycle + 1, total: d, endAt: now - st.endAt > d ? now + d : st.endAt + d };
-    arm();
-    persist();
-    render();
-    return;
-  }
+  const d = st.dur * 1000;
+  const total = st.cycles;
+  const endedRound = st.cycle;
+  const isLast = (c) => c >= total || cfg.mode === 'until';
   // If this code only woke up long after the end time, the phone had frozen the page. Audio that was
   // queued on a suspended clock is stale (it would play even later), so ring right now instead.
-  const late = now - st.endAt;
-  const frozen = late > LATE_MS;
-  if (frozen || !armed || !alarm.running()) {
-    disarm();
-    armed = alarm.play(soundOpts(true));
-    if (armed) armed.onended = () => { armed = null; setRinging(false); };
+  const frozen = now - st.endAt > LATE_MS;
+
+  // rounds that came and went while the page was frozen are skipped, not replayed
+  let cycle = st.cycle, endAt = st.endAt;
+  while (!isLast(cycle) && now >= endAt) { cycle++; endAt += d; }
+  const finished = isLast(cycle) && now >= endAt;
+
+  let handle = armed;
+  armed = null;
+  if (frozen || !handle || !alarm.running()) {
+    handle?.stop();
+    handle = alarm.play(soundOpts());
   }
-  st = { ...st, status: 'finished', lateMs: frozen ? late : 0 };
+  sounding?.stop();                      // an earlier round may still be beeping; this round replaces it
+  sounding = handle;
+  if (handle) handle.onended = () => { if (sounding === handle) { sounding = null; setRinging(false); } };
+
+  if (finished) {
+    st = { ...st, status: 'finished', cycle, endAt, lateMs: frozen ? now - endAt : 0 };
+  } else {
+    st = { ...st, cycle, endAt, total: d };
+    arm();
+  }
   persist();
   render();
-  setRinging(!!armed);
-  notifyDone();
+  setRinging(!!sounding);
+  notifyDone(endedRound, total);
 }
 
 /** Time's up: start a fresh countdown of `secs`. */
@@ -282,7 +308,7 @@ function overrunMs() {
 
 /** Forgot to stop it: after the allowed over-run, silence everything and clear back to 00:00:00. */
 function autoReset() {
-  lastRun = { dur: st.dur, endedAt: st.endAt, afterMs: overrunMs() };
+  lastRun = { dur: st.dur, rounds: st.cycles, endedAt: st.endAt, afterMs: overrunMs() };
   save('timer.last', lastRun);
   reset();
 }
@@ -320,7 +346,6 @@ function render() {
   root.dataset.state = s;
   show(q('#t-picker'), s === 'idle');
   show(q('#t-dial'), s !== 'idle');
-  show(q('#t-finish'), s === 'finished');
   show(q('#t-addbox'), s !== 'idle');
   show(q('#t-presets'), s === 'idle');
 
@@ -342,7 +367,9 @@ function render() {
 }
 
 function renderFinish() {
-  q('#t-stop').hidden = !ringing;
+  q('#t-stop').hidden = !ringing;      // also shows while a repeating timer is still counting and beeping
+  show(q('#t-finish'), ringing && st.status !== 'idle');
+  root.dataset.ringing = ringing; // lets the CSS shrink the ring so Stop alarm and the buttons fit on small phones
   q('#t-adds').innerHTML = cfg.adds
     .map((sec) => `<button class="chip" data-act="add" data-sec="${sec}">+ ${shortDur(sec)}</button>`)
     .join('');
@@ -365,7 +392,7 @@ function update() {
     const bits = [];
     if (s === 'finished') bits.push("Time's up!");
     if (cfg.label) bits.push(cfg.label);
-    if (st.cycles > 1 && s !== 'finished') bits.push(`Cycle ${st.cycle} of ${st.cycles}`);
+    if (st.cycles > 1) bits.push(`Round ${st.cycle} of ${st.cycles}`);
     if (s === 'running') bits.push(`Ends ${new Date(st.endAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}`);
     if (s === 'paused') bits.push('Paused');
     q('#t-meta').textContent = bits.join(' · ');
@@ -378,7 +405,7 @@ function update() {
   } else {
     q('#t-late').textContent = '';
     q('#t-last').textContent = lastRun
-      ? `Last timer (${shortDur(lastRun.dur)}) rang at ${new Date(lastRun.endedAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}, ran ${shortDur(Math.round(lastRun.afterMs / 1000))} over, then reset itself.`
+      ? `Last timer (${shortDur(lastRun.dur)}${lastRun.rounds > 1 ? ` × ${lastRun.rounds}` : ''}) rang at ${new Date(lastRun.endedAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}, ran ${shortDur(Math.round(lastRun.afterMs / 1000))} over, then reset itself.`
       : '';
     q('#t-meta').textContent = cfg.label;
     q('#t-over').textContent = ''; // don't leave "Over by" showing on the setup screen
@@ -438,7 +465,7 @@ function initSettings() {
 function onCfgChanged(key) {
   saveCfg();
   if (key === 'sound' || key === 'mode' || key === 'cycles' || key === 'volume') arm();
-  if (key === 'mode' || key === 'overrun') syncModeUi();
+  if (key === 'mode' || key === 'overrun' || key === 'cycles') syncModeUi();
   if (key === 'volume') q('#t-vol-out').textContent = `${Math.round(cfg.volume * 100)}%`;
   if (key === 'wake' || key === 'keepAlive') syncRuntime();
   if (key === 'vibrate' && !cfg.vibrate) navigator.vibrate?.(0);
@@ -452,6 +479,13 @@ function onCfgChanged(key) {
 function syncModeUi() {
   q('#t-for-wrap').hidden = cfg.mode !== 'for';
   q('#t-overrun-wrap').hidden = cfg.overrun !== 'custom';
+  const until = cfg.mode === 'until';
+  q('#t-repeat-row').hidden = until;
+  q('#t-repeat-note').hidden = !until;
+  // spell out what the first two options do once repeating is on
+  const again = !until && cfg.cycles > 1;
+  q('[data-cfg="mode"][value="once"] + span').textContent = again ? 'Beep once, then repeat the timer' : 'Beep once, then stop';
+  q('[data-cfg="mode"][value="for"] + span').textContent = again ? 'Beep for a set time, then repeat' : 'Beep for a set time';
 }
 
 function renderAddsEditor() {
@@ -622,6 +656,9 @@ export default {
           ${radio('mode', 'until', 'Keep beeping until I stop it')}
         </div>
         <div class="inline-field" id="t-for-wrap" hidden><span>Beep for</span></div>
+        <label class="setting" id="t-repeat-row"><span><b>Repeat occurrences</b><small>Times the timer runs in total. 1 = no repeat. Each round rings as set above, then the next starts straight away.</small></span>
+          <input type="number" class="text narrow" min="1" max="99" inputmode="numeric" data-cfg="cycles" aria-label="Repeat occurrences"></label>
+        <p class="hint" id="t-repeat-note" hidden>Repeating isn't available when it beeps until you stop it, because that never ends by itself.</p>
         ${toggle('vibrate', 'Vibrate', 'Buzz along with the alarm')}
         <div class="group-label sp">If I forget to stop it</div>
         <p class="hint tight">The timer keeps running after time's up, then switches itself off and clears to 00:00:00.</p>
@@ -642,8 +679,6 @@ export default {
         <div class="card-head"><h2>Extras</h2></div>
         <label class="setting"><span><b>Label</b><small>Shown while running and on the alert</small></span>
           <input type="text" class="text" data-cfg="label" maxlength="40" placeholder="e.g. Tea"></label>
-        <label class="setting"><span><b>Repeat cycles</b><small>Chimes between cycles, rings the alarm on the last</small></span>
-          <input type="number" class="text narrow" min="1" max="99" inputmode="numeric" data-cfg="cycles"></label>
         ${toggle('wake', 'Keep screen on', 'While the timer runs or rings')}
         ${toggle('keepAlive', 'Keep running with screen off', 'Plays an inaudible tone so Android keeps the timer alive')}
         ${toggle('notify', 'Notify when done', 'Shows an alert if the app is in the background')}
@@ -716,7 +751,13 @@ export default {
     updateCustomUi();
 
     // resume a countdown that was running when the page was closed/reloaded
-    if (st.status === 'running' && Date.now() >= st.endAt) st = { ...st, status: 'finished' };
+    if (st.status === 'running') {
+      // rounds that ended while the app was closed are skipped (nothing can ring for them now)
+      let { cycle, endAt } = st;
+      while (cycle < st.cycles && Date.now() >= endAt) { cycle++; endAt += st.dur * 1000; }
+      st = { ...st, cycle, endAt, total: cycle === st.cycle ? st.total : st.dur * 1000 };
+      if (Date.now() >= endAt) st = { ...st, status: 'finished' };
+    }
     if (st.status === 'finished' && st.silencedAt == null) st = { ...st, silencedAt: Date.now() }; // nothing rings after a reload
     if (st.status === 'running') { writePicker(cfg.dur); arm(); }
     render();

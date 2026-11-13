@@ -204,8 +204,8 @@ main { width: 100%; max-width: 520px; margin: 0 auto; padding: 4px 16px 0; }
 .dial { position: relative; width: min(100%, 250px, 29dvh); aspect-ratio: 1; margin: 4px auto 0; }
 .dial .time { font-size: clamp(2.2rem, 13vw, 3.6rem); }
 /* when time's up the buttons matter more than the ring */
-[data-state="finished"] .dial { width: min(100%, 170px, 24dvh); }
-[data-state="finished"] .dial .time { font-size: clamp(1.8rem, 10vw, 2.6rem); }
+[data-state="finished"] .dial, [data-ringing="true"] .dial { width: min(100%, 170px, 24dvh); }
+[data-state="finished"] .dial .time, [data-ringing="true"] .dial .time { font-size: clamp(1.8rem, 10vw, 2.6rem); }
 .dial svg { width: 100%; height: 100%; transform: rotate(-90deg); stroke-width: 9; }
 .dial .track { stroke: var(--track); }
 .dial .prog { stroke: var(--accent); transition: stroke-dashoffset 0.3s linear, stroke 0.3s; }
