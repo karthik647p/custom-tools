@@ -656,7 +656,7 @@ export default {
           ${radio('mode', 'until', 'Keep beeping until I stop it')}
         </div>
         <div class="inline-field" id="t-for-wrap" hidden><span>Beep for</span></div>
-        <label class="setting" id="t-repeat-row"><span><b>Repeat occurrences</b><small>Times the timer runs in total. 1 = no repeat. Each round rings as set above, then the next starts straight away.</small></span>
+        <label class="setting" id="t-repeat-row"><span><b>Repeat occurrences</b><small>How many times the timer runs in a row. 1 = just once.</small></span>
           <input type="number" class="text narrow" min="1" max="99" inputmode="numeric" data-cfg="cycles" aria-label="Repeat occurrences"></label>
         <p class="hint" id="t-repeat-note" hidden>Repeating isn't available when it beeps until you stop it, because that never ends by itself.</p>
         ${toggle('vibrate', 'Vibrate', 'Buzz along with the alarm')}
